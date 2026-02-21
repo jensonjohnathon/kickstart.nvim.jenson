@@ -327,15 +327,9 @@ require('lazy').setup({
         store_selection_keys = '<Tab>',
       }
       -- einfache Keymaps
-      vim.keymap.set({ 'i' }, '<C-k>', function()
-        luasnip.expand()
-      end, { silent = true })
-      vim.keymap.set({ 'i', 's' }, '<C-l>', function()
-        luasnip.jump(1)
-      end, { silent = true })
-      vim.keymap.set({ 'i', 's' }, '<C-h>', function()
-        luasnip.jump(-1)
-      end, { silent = true })
+      vim.keymap.set({ 'i' }, '<C-k>', function() luasnip.expand() end, { silent = true })
+      vim.keymap.set({ 'i', 's' }, '<C-l>', function() luasnip.jump(1) end, { silent = true })
+      vim.keymap.set({ 'i', 's' }, '<C-h>', function() luasnip.jump(-1) end, { silent = true })
     end,
   },
 
@@ -687,7 +681,7 @@ require('lazy').setup({
       -- You can press `g?` for help in this menu.
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
-        'lua_ls', -- Lua Language server
+        'lua-language-server', -- Lua Language server
         'stylua', -- Used to format Lua code
         -- You can add other tools here that you want Mason to install
       })
@@ -927,13 +921,30 @@ require('lazy').setup({
   { -- Highlight, edit, and navigate code
     'nvim-treesitter/nvim-treesitter',
     build = ':TSUpdate',
-    main = 'nvim-treesitter.configs', -- Sets main module to use for opts
-    init = function()
-      require('nvim-treesitter.install').prefer_git = false
-    end,
+    main = 'nvim-treesitter.config', -- Sets main module to use for opts
+    init = function() require('nvim-treesitter.install').prefer_git = false end,
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
     opts = {
-      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'go', 'latex' },
+      ensure_installed = {
+        'bash',
+        'c',
+        'diff',
+        'html',
+        'lua',
+        'luadoc',
+        'markdown',
+        'markdown_inline',
+        'query',
+        'vim',
+        'vimdoc',
+        'go',
+        'latex',
+        'python',
+        'json',
+        'javascript',
+        'typescript',
+        'tsx',
+      },
       -- Autoinstall languages that are not installed
       auto_install = true,
       highlight = {

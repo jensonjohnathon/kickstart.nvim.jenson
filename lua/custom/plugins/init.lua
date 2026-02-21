@@ -6,9 +6,5 @@ return {
   {
     'davidmh/mdx.nvim',
     dependencies = { 'nvim-treesitter/nvim-treesitter' },
-    lazy = false,
-    config = function()
-      require('mdx').setup()
-    end,
   },
 }
