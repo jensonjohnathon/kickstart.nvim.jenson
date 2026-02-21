@@ -116,6 +116,19 @@ vim.o.showmode = false
 --  See `:help 'clipboard'`
 vim.schedule(function() vim.o.clipboard = 'unnamedplus' end)
 
+vim.g.clipboard = {
+  name = 'wl-clipboard',
+  copy = {
+    ['+'] = 'wl-copy',
+    ['*'] = 'wl-copy',
+  },
+  paste = {
+    ['+'] = 'wl-paste',
+    ['*'] = 'wl-paste',
+  },
+  cache_enabled = true,
+}
+
 -- Enable break indent
 vim.o.breakindent = true
 
@@ -253,6 +266,22 @@ rtp:prepend(lazypath)
 --  To update plugins you can run
 --    :Lazy update
 --
+-- Yes, we're just executing a bunch of Vimscript, but this is the officially
+-- endorsed method; see https://github.com/L3MON4D3/LuaSnip#keymaps
+vim.cmd [[
+" Use Tab to expand and jump through snippets
+imap <silent><expr> <Tab> luasnip#expand_or_jumpable() ? '<Plug>luasnip-expand-or-jump' : '<Tab>' 
+smap <silent><expr> <Tab> luasnip#jumpable(1) ? '<Plug>luasnip-jump-next' : '<Tab>'
+
+" Use Shift-Tab to jump backwards through snippets
+imap <silent><expr> <S-Tab> luasnip#jumpable(-1) ? '<Plug>luasnip-jump-prev' : '<S-Tab>'
+smap <silent><expr> <S-Tab> luasnip#jumpable(-1) ? '<Plug>luasnip-jump-prev' : '<S-Tab>'
+]]
+
+vim.cmd [[
+  filetype plugin indent on
+]]
+
 -- NOTE: Here is where you install your plugins.
 require('lazy').setup({
   -- NOTE: Plugins can be added via a link or github org/name. To run setup automatically, use `opts = {}`
@@ -268,6 +297,50 @@ require('lazy').setup({
   --            })
   --        end,
   --    }
+  {
+    'lervag/vimtex',
+    ft = { 'tex', 'plaintex', 'latex' }, -- lazy-load nur bei TeX
+    init = function()
+      -- Viewer (WSL/Ubuntu mit WSLg): z.B. zathura
+      vim.g.vimtex_view_method = 'zathura' -- Alternativen: "sioyek", "skim"(mac), "sumatrapdf"(win), "general"
+      vim.g.vimtex_quickfix_mode = 0 -- Quickfix nur bei echten Fehlern, nicht bei Warnungen
+      -- optional: lokaler Leader in TeX-Buffern
+    end,
+  },
+  -- LuaSnip (Snippet Engine)
+  {
+    'L3MON4D3/LuaSnip',
+    version = 'v2.*', -- stabile Version
+    build = 'make install_jsregexp', -- optional, für advanced regex
+    config = function()
+      local luasnip = require 'luasnip'
+      -- Lade VSCode-kompatible Snippets, falls du welche hast
+      require('luasnip.loaders.from_vscode').lazy_load()
+      require('luasnip.loaders.from_lua').load { paths = '~/.config/nvim/LuaSnip/' }
+
+      require('luasnip').config.set_config { -- Setting LuaSnip config
+
+        -- Enable autotriggered snippets
+        enable_autosnippets = true,
+
+        -- Use Tab (or some other key if you prefer) to trigger visual selection
+        store_selection_keys = '<Tab>',
+      }
+      -- einfache Keymaps
+      vim.keymap.set({ 'i' }, '<C-k>', function()
+        luasnip.expand()
+      end, { silent = true })
+      vim.keymap.set({ 'i', 's' }, '<C-l>', function()
+        luasnip.jump(1)
+      end, { silent = true })
+      vim.keymap.set({ 'i', 's' }, '<C-h>', function()
+        luasnip.jump(-1)
+      end, { silent = true })
+    end,
+  },
+
+  -- Optionale Snippet-Sammlung
+  { 'rafamadriz/friendly-snippets' },
   --
   -- Here is a more advanced example where we pass configuration
   -- options to `gitsigns.nvim`.
@@ -594,7 +667,7 @@ require('lazy').setup({
       --  See `:help lsp-config` for information about keys and how to configure
       local servers = {
         -- clangd = {},
-        -- gopls = {},
+        gopls = {},
         -- pyright = {},
         -- rust_analyzer = {},
         --
@@ -793,11 +866,13 @@ require('lazy').setup({
     -- change the command in the config to whatever the name of that colorscheme is.
     --
     -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
-    'folke/tokyonight.nvim',
+    -- 'folke/tokyonight.nvim',
+    -- 'navarasu/onedark.nvim',
+    'scottmckendry/cyberdream.nvim',
     priority = 1000, -- Make sure to load this before all the other start plugins.
     config = function()
       ---@diagnostic disable-next-line: missing-fields
-      require('tokyonight').setup {
+      require('cyberdream').setup {
         styles = {
           comments = { italic = false }, -- Disable italics in comments
         },
@@ -806,7 +881,7 @@ require('lazy').setup({
       -- Load the colorscheme here.
       -- Like many other themes, this one has different styles, and you could load
       -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-      vim.cmd.colorscheme 'tokyonight-night'
+      vim.cmd.colorscheme 'cyberdream'
     end,
   },
 
@@ -851,14 +926,31 @@ require('lazy').setup({
 
   { -- Highlight, edit, and navigate code
     'nvim-treesitter/nvim-treesitter',
-    config = function()
-      local filetypes = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' }
-      require('nvim-treesitter').install(filetypes)
-      vim.api.nvim_create_autocmd('FileType', {
-        pattern = filetypes,
-        callback = function() vim.treesitter.start() end,
-      })
+    build = ':TSUpdate',
+    main = 'nvim-treesitter.configs', -- Sets main module to use for opts
+    init = function()
+      require('nvim-treesitter.install').prefer_git = false
     end,
+    -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
+    opts = {
+      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'go', 'latex' },
+      -- Autoinstall languages that are not installed
+      auto_install = true,
+      highlight = {
+        enable = true,
+        -- Some languages depend on vim's regex highlighting system (such as Ruby) for indent rules.
+        --  If you are experiencing weird indenting issues, add the language to
+        --  the list of additional_vim_regex_highlighting and disabled languages for indent.
+        additional_vim_regex_highlighting = { 'ruby' },
+      },
+      indent = { enable = true, disable = { 'ruby' } },
+    },
+    -- There are additional nvim-treesitter modules that you can use to interact
+    -- with nvim-treesitter. You should go explore a few and see what interests you:
+    --
+    --    - Incremental selection: Included, see `:help nvim-treesitter-incremental-selection-mod`
+    --    - Show your current context: https://github.com/nvim-treesitter/nvim-treesitter-context
+    --    - Treesitter + textobjects: https://github.com/nvim-treesitter/nvim-treesitter-textobjects
   },
 
   -- The following comments only work if you have downloaded the kickstart repo, not just copy pasted the
@@ -881,7 +973,8 @@ require('lazy').setup({
   --    This is the easiest way to modularize your config.
   --
   --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
-  -- { import = 'custom.plugins' },
+  { import = 'custom.plugins' },
+
   --
   -- For additional information with loading, sourcing and examples see `:help lazy.nvim-🔌-plugin-spec`
   -- Or use telescope!
