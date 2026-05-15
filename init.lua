@@ -185,7 +185,7 @@ vim.o.confirm = true
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 
 -- To go into Explorer View more easily
-vim.keymap.set('n', '<leader>pv', vim.cmd.Ex, { desc = 'Go into Explorer' })
+vim.keymap.set('n', '<leader>lv', vim.cmd.Ex, { desc = 'Go into Explorer' })
 
 -- Indicator to help with linux style guides regarding line length
 local function toggle_colorcolumn()
@@ -198,7 +198,7 @@ local function toggle_colorcolumn()
   end
 end
 
-vim.keymap.set('n', '<leader>pc', toggle_colorcolumn, { desc = 'Toggle colorcolumn at 80' })
+vim.keymap.set('n', '<leader>lc', toggle_colorcolumn, { desc = 'Toggle colorcolumn at 80' })
 
 vim.api.nvim_set_hl(0, 'ColorColumn', { bg = '#3b3b3b' })
 
@@ -220,7 +220,7 @@ vim.diagnostic.config {
 
 vim.keymap.set('n', '<leader>q', vim.diagnostic.setloclist, { desc = 'Open diagnostic [Q]uickfix list' })
 
-vim.keymap.set('n', '<leader>pd', vim.cmd.DiffviewOpen, { desc = 'Open Git Diffview' })
+vim.keymap.set('n', '<leader>ld', vim.cmd.DiffviewOpen, { desc = 'Open Git Diffview' })
 
 -- Exit terminal mode in the builtin terminal with a shortcut that is a bit easier
 -- for people to discover. Otherwise, you normally need to press <C-\><C-n>, which
@@ -548,7 +548,7 @@ require('lazy').setup({
       vim.keymap.set('n', '<leader>sk', builtin.keymaps, { desc = '[S]earch [K]eymaps' })
       vim.keymap.set('n', '<leader>sf', builtin.find_files, { desc = '[S]earch [F]iles' })
       vim.keymap.set('n', '<leader>sg', builtin.git_files, { desc = '[S]earch [G]it_Files' })
-      vim.keymap.set('n', '<leader>ps', function() builtin.grep_string { search = vim.fn.input 'Grep > ' } end, { desc = 'Grep exact String' })
+      vim.keymap.set('n', '<leader>ls', function() builtin.grep_string { search = vim.fn.input 'Grep > ' } end, { desc = 'Grep exact String' })
       vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
       vim.keymap.set({ 'n', 'v' }, '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
       vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
