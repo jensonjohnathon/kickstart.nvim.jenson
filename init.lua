@@ -187,6 +187,21 @@ vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 -- To go into Explorer View more easily
 vim.keymap.set('n', '<leader>pv', vim.cmd.Ex, { desc = 'Go into Explorer' })
 
+-- Indicator to help with linux style guides regarding line length
+local function toggle_colorcolumn()
+  if vim.o.colorcolumn == '' then
+    vim.o.colorcolumn = '80'
+    print 'colorcolumn set to 80'
+  else
+    vim.o.colorcolumn = ''
+    print 'colorcolumn off'
+  end
+end
+
+vim.keymap.set('n', '<leader>pc', toggle_colorcolumn, { desc = 'Toggle colorcolumn at 80' })
+
+vim.api.nvim_set_hl(0, 'ColorColumn', { bg = '#3b3b3b' })
+
 -- Diagnostic Config & Keymaps
 -- See :help vim.diagnostic.Opts
 vim.diagnostic.config {
@@ -322,7 +337,7 @@ require('lazy').setup({
       local harpoon = require 'harpoon'
       harpoon:setup()
 
-      vim.keymap.set('n', '<leader>a', function() harpoon:list():add() end)
+      vim.keymap.set('n', '<leader>a', function() harpoon:list():add() end, { desc = 'add to harpoon' })
       vim.keymap.set('n', '<leader>j', function() harpoon.ui:toggle_quick_menu(harpoon:list()) end, { desc = 'harpoon menu' })
 
       vim.keymap.set('n', '<C-h>', function() harpoon:list():select(1) end)
