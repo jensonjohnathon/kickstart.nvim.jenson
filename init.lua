@@ -148,6 +148,16 @@ vim.o.updatetime = 250
 -- Decrease mapped sequence wait time
 vim.o.timeoutlen = 300
 
+-- Load project-local .nvim.lua files (nvim asks before trusting each one)
+vim.o.exrc = true
+
+-- Eigenes Python nur für Neovim-Plugins (molten/Jupyter braucht pynvim + jupyter_client)
+-- System-Python ist zu neu für einige Pakete, deshalb ein uv-venv mit Python 3.13:
+--   uv venv --python 3.13 ~/.local/share/nvim/python-venv
+--   uv pip install --python ~/.local/share/nvim/python-venv/bin/python pynvim jupyter_client ipykernel nbformat pillow cairosvg
+local nvim_python = vim.fn.stdpath 'data' .. '/python-venv/bin/python'
+if vim.uv.fs_stat(nvim_python) then vim.g.python3_host_prog = nvim_python end
+
 -- Configure how new splits should be opened
 vim.o.splitright = true
 vim.o.splitbelow = true
@@ -198,7 +208,7 @@ local function toggle_colorcolumn()
   end
 end
 
-vim.keymap.set('n', '<leader>lc', toggle_colorcolumn, { desc = 'Toggle colorcolumn at 80' })
+vim.keymap.set('n', '<leader>tc', toggle_colorcolumn, { desc = '[T]oggle [C]olorcolumn at 80' })
 
 vim.api.nvim_set_hl(0, 'ColorColumn', { bg = '#3b3b3b' })
 
@@ -459,6 +469,9 @@ require('lazy').setup({
         { '<leader>s', group = '[S]earch', mode = { 'n', 'v' } },
         { '<leader>t', group = '[T]oggle' },
         { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
+        { '<leader>l', group = '[L]anguage / LSP', mode = { 'n', 'x' } },
+        { '<leader>lc', group = '[C]odeforces' },
+        { '<leader>n', group = '[N]otebook (Jupyter)', mode = { 'n', 'x' } },
       },
     },
   },
@@ -728,8 +741,61 @@ require('lazy').setup({
           if client and client:supports_method('textDocument/inlayHint', event.buf) then
             map('<leader>th', function() vim.lsp.inlay_hint.enable(not vim.lsp.inlay_hint.is_enabled { bufnr = event.buf }) end, '[T]oggle Inlay [H]ints')
           end
+
+          -- Ruff nur für Linting/Formatting, Hover-Doku kommt von basedpyright
+          if client and client.name == 'ruff' then client.server_capabilities.hoverProvider = false end
+
+          -- Ruff versteht .ipynb-Buffer (Jupytext-Text statt JSON) nicht, also dort abkoppeln
+          if client and client.name == 'ruff' and vim.api.nvim_buf_get_name(event.buf):match '%.ipynb$' then
+            vim.schedule(function() vim.lsp.buf_detach_client(event.buf, client.id) end)
+          end
+
+          -- [[ Language-Shortcuts unter <leader>l ]]
+
+          -- Code Action unter dem Cursor (Quick-Fix, fehlenden Import hinzufügen, ...)
+          map('<leader>la', vim.lsp.buf.code_action, '[L]SP Code [A]ction', { 'n', 'x' })
+
+          -- Symbol unter dem Cursor im ganzen Projekt umbenennen
+          map('<leader>lr', vim.lsp.buf.rename, '[L]SP [R]ename')
+
+          -- Doku/Typ vom Symbol unter dem Cursor (gleich wie K)
+          map('<leader>lk', vim.lsp.buf.hover, '[L]SP Hover Doc (wie [K])')
+
+          -- Signatur der Funktion anzeigen, in deren Klammern man gerade steht
+          map('<leader>lS', vim.lsp.buf.signature_help, '[L]SP [S]ignature Help')
+
+          -- Imports sortieren + ungenutzte entfernen (ruff, ts_ls, gopls)
+          map(
+            '<leader>lo',
+            function() vim.lsp.buf.code_action { context = { only = { 'source.organizeImports' }, diagnostics = {} }, apply = true } end,
+            '[L]SP [O]rganize Imports'
+          )
+
+          -- Fehlermeldung der aktuellen Zeile als Popup
+          map('<leader>le', vim.diagnostic.open_float, '[L]SP Line [E]rror Popup')
+
+          -- Alle Fehler/Warnungen im aktuellen Buffer in Telescope
+          map('<leader>lx', function() require('telescope.builtin').diagnostics { bufnr = 0 } end, '[L]SP Buffer Diagnostics')
+
+          -- Language Server neu starten (z.B. nach neuem venv oder neuer Dependency)
+          map('<leader>lR', function() vim.cmd 'lsp restart' end, '[L]SP [R]estart')
         end,
       })
+
+      -- Status aller Language Server im aktuellen Buffer (welcher läuft, welche root, ...)
+      vim.keymap.set('n', '<leader>li', '<cmd>checkhealth vim.lsp<CR>', { desc = '[L]SP [I]nfo' })
+
+      -- Mason öffnen um Server/Formatter/Linter zu verwalten
+      vim.keymap.set('n', '<leader>lm', '<cmd>Mason<CR>', { desc = '[L]SP [M]ason' })
+
+      -- Findet das Python vom Projekt: aktives venv, sonst .venv/venv/env im Projekt-Root
+      local function python_path(root)
+        if vim.env.VIRTUAL_ENV then return vim.env.VIRTUAL_ENV .. '/bin/python' end
+        for _, dir in ipairs { '.venv', 'venv', 'env' } do
+          local path = root .. '/' .. dir .. '/bin/python'
+          if vim.uv.fs_stat(path) then return path end
+        end
+      end
 
       -- LSP servers and clients are able to communicate to each other what features they support.
       --  By default, Neovim doesn't support everything that is in the LSP specification.
@@ -741,16 +807,69 @@ require('lazy').setup({
       --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
       --  See `:help lsp-config` for information about keys and how to configure
       local servers = {
-        -- clangd = {},
-        gopls = {},
-        -- pyright = {},
-        -- rust_analyzer = {},
-        --
-        -- Some languages (like typescript) have entire language plugins that can be useful:
-        --    https://github.com/pmizio/typescript-tools.nvim
-        --
-        -- But for many setups, the LSP (`ts_ls`) will work just fine
-        -- ts_ls = {},
+        -- C: clang-tidy liefert die Lint-Warnungen, keine automatischen #includes (Kernel-Style)
+        clangd = {
+          cmd = { 'clangd', '--background-index', '--clang-tidy', '--header-insertion=never', '--completion-style=detailed' },
+        },
+
+        -- Go: gofumpt-Style, staticcheck-Lints und Inlay-Hints
+        gopls = {
+          settings = {
+            gopls = {
+              gofumpt = true,
+              staticcheck = true,
+              usePlaceholders = true,
+              analyses = { unusedparams = true, unusedwrite = true, nilness = true },
+              hints = { assignVariableTypes = true, compositeLiteralFields = true, parameterNames = true, rangeVariableTypes = true },
+            },
+          },
+        },
+
+        -- Python: Typen, Completion, Go-to-Definition (basedpyright = pyright mit besseren Defaults)
+        basedpyright = {
+          settings = {
+            basedpyright = {
+              -- Imports sortiert ruff
+              disableOrganizeImports = true,
+              analysis = {
+                -- 'standard' statt 'recommended', sonst gibt's Warnungen für jede Kleinigkeit
+                typeCheckingMode = 'standard',
+                autoImportCompletions = true,
+                diagnosticMode = 'openFilesOnly',
+              },
+            },
+          },
+          -- Projekt-venv an basedpyright geben, damit Imports wie numpy gefunden werden
+          before_init = function(_, config)
+            local path = python_path(config.root_dir or vim.fn.getcwd())
+            if path then config.settings.python = vim.tbl_extend('force', config.settings.python or {}, { pythonPath = path }) end
+          end,
+        },
+
+        -- Python: Linting + Quick-Fixes (sehr schnell, ersetzt flake8/pylint/isort)
+        ruff = {},
+
+        -- JavaScript/TypeScript
+        ts_ls = {
+          settings = {
+            typescript = { inlayHints = { includeInlayParameterNameHints = 'literals', includeInlayFunctionReturnTypeHints = true } },
+            javascript = { inlayHints = { includeInlayParameterNameHints = 'literals', includeInlayFunctionReturnTypeHints = true } },
+          },
+        },
+
+        -- JS/TS Linting, startet nur wenn das Projekt eine eslint-Config hat
+        eslint = {},
+
+        -- Rust: clippy statt cargo check für mehr Lints
+        -- rust-analyzer kommt von rustup (rustup component add rust-analyzer), nicht von Mason
+        rust_analyzer = {
+          settings = {
+            ['rust-analyzer'] = {
+              check = { command = 'clippy' },
+              cargo = { allFeatures = true },
+            },
+          },
+        },
       }
 
       -- Ensure the servers and tools above are installed
@@ -760,12 +879,21 @@ require('lazy').setup({
       --    :Mason
       --
       -- You can press `g?` for help in this menu.
-      local ensure_installed = vim.tbl_keys(servers or {})
-      vim.list_extend(ensure_installed, {
+      -- Mason-Paketnamen (weichen teils von den LSP-Namen oben ab)
+      local ensure_installed = {
         'lua-language-server', -- Lua Language server
         'stylua', -- Used to format Lua code
-        -- You can add other tools here that you want Mason to install
-      })
+        'clangd', -- C LSP
+        'gopls', -- Go LSP
+        'gofumpt', -- Go Formatter
+        'goimports', -- Go Imports ergänzen/sortieren
+        'golangci-lint', -- Go Linter (über nvim-lint)
+        'basedpyright', -- Python LSP
+        'ruff', -- Python Linter + Formatter
+        'typescript-language-server', -- JS/TS LSP
+        'eslint-lsp', -- JS/TS Linter
+        'prettierd', -- JS/TS/JSON/CSS Formatter
+      }
 
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -815,6 +943,15 @@ require('lazy').setup({
         mode = '',
         desc = '[F]ormat buffer',
       },
+      -- Buffer formatieren (gleich wie <leader>f, nur bei den anderen Language-Shortcuts)
+      {
+        '<leader>lf',
+        function() require('conform').format { async = true, lsp_format = 'fallback' } end,
+        mode = '',
+        desc = '[L]anguage [F]ormat buffer',
+      },
+      -- Zeigt welche Formatter für den Buffer aktiv sind und ob sie gefunden wurden
+      { '<leader>lF', '<cmd>ConformInfo<CR>', desc = '[L]anguage [F]ormatter Info' },
     },
     opts = {
       notify_on_error = false,
@@ -840,7 +977,32 @@ require('lazy').setup({
         --
         -- You can use 'stop_after_first' to run the first available formatter from the list
         javascript = { 'prettierd', 'prettier', stop_after_first = true },
+        javascriptreact = { 'prettierd', 'prettier', stop_after_first = true },
+        typescript = { 'prettierd', 'prettier', stop_after_first = true },
+        typescriptreact = { 'prettierd', 'prettier', stop_after_first = true },
+        json = { 'prettierd', 'prettier', stop_after_first = true },
+        css = { 'prettierd', 'prettier', stop_after_first = true },
+        html = { 'prettierd', 'prettier', stop_after_first = true },
+        -- Go: erst Imports fixen, dann gofumpt (strengeres gofmt)
+        go = { 'goimports', 'gofumpt' },
+        rust = { 'rustfmt' },
+        -- C nur manuell mit <leader>lf, nutzt die .clang-format vom Projekt (z.B. Linux-Kernel)
+        c = { 'clang-format' },
       },
+      -- Jupyter-Notebooks sind im Buffer Python-Text (jupytext), Dateiname ist aber .ipynb.
+      -- Ruff würde dann JSON erwarten, also geben wir ihm den Namen als .py
+      formatters = (function()
+        local overrides = {}
+        for _, name in ipairs { 'ruff_fix', 'ruff_format', 'ruff_organize_imports' } do
+          overrides[name] = {
+            args = function(_, ctx)
+              local base_args = require('conform.formatters.' .. name).args
+              return vim.tbl_map(function(arg) return arg == '$FILENAME' and ctx.filename:gsub('%.ipynb$', '.py') or arg end, base_args)
+            end,
+          }
+        end
+        return overrides
+      end)(),
     },
   },
 
@@ -1013,6 +1175,7 @@ require('lazy').setup({
         'c',
         'diff',
         'html',
+        'css',
         'lua',
         'luadoc',
         'markdown',
@@ -1021,38 +1184,37 @@ require('lazy').setup({
         'vim',
         'vimdoc',
         'go',
+        'gomod',
+        'gosum',
+        'gowork',
         'latex',
         'python',
         'rust',
+        'toml',
+        'yaml',
         'json',
         'javascript',
+        'jsdoc',
         'typescript',
         'tsx',
+        'make',
+        'regex',
+        'printf',
+        'gitcommit',
       }
 
+      -- Treesitter für jeden Filetype starten, für den ein Parser da ist.
+      -- (Früher stand hier eine Liste mit Parser-Namen, aber Filetypes heißen teils anders:
+      --  tsx -> typescriptreact, bash -> sh. Deshalb hatte z.B. .tsx kein Highlighting)
       vim.api.nvim_create_autocmd('FileType', {
-        pattern = {
-          'bash',
-          'c',
-          'diff',
-          'html',
-          'lua',
-          'luadoc',
-          'markdown',
-          'markdown_inline',
-          'query',
-          'vim',
-          'vimdoc',
-          'go',
-          'latex',
-          'python',
-          'rust',
-          'json',
-          'javascript',
-          'typescript',
-          'tsx',
-        },
-        callback = function() vim.treesitter.start() end,
+        group = vim.api.nvim_create_augroup('treesitter-start', { clear = true }),
+        callback = function(event)
+          -- vimtex macht das LaTeX-Highlighting selbst
+          if event.match == 'tex' then return end
+          if not pcall(vim.treesitter.start, event.buf) then return end
+          -- Einrückung über Treesitter (z.B. nach Enter in Python)
+          vim.bo[event.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+        end,
       })
     end,
     -- There are additional nvim-treesitter modules that you can use to interact
@@ -1074,7 +1236,7 @@ require('lazy').setup({
   --
   -- require 'kickstart.plugins.debug',
   -- require 'kickstart.plugins.indent_line',
-  -- require 'kickstart.plugins.lint',
+  require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',
   -- require 'kickstart.plugins.neo-tree',
   -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
